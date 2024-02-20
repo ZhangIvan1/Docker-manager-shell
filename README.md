@@ -1,5 +1,7 @@
 # Docker shell 管理脚本
 
+[English](https://github.com/ZhangIvan1/Docker-manager-shell/blob/main/README_EN.md) | 中文
+
 ## 简介
 
 该脚本旨在简化 Docker 的管理操作，特别为实验室内不熟悉 Docker 的同学提供便捷的工具。通过该脚本，你可以方便地进行 Docker 镜像、容器、网络和存储卷的管理，无需深入了解 Docker 命令行操作。
