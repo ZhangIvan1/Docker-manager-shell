@@ -1,6 +1,6 @@
 # Docker Management Script
 
-[English]| [中文](#docker-管理脚本)
+English | [中文](https://github.com/ZhangIvan1/Docker-manager-shell/blob/main/README.md)
 
 ## Introduction
 
