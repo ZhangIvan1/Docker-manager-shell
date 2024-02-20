@@ -1,0 +1,223 @@
+#!/bin/bash
+
+# 登录功能
+login() {
+    echo "请输入用户名和密码进行登录："
+    read -p "用户名: " username
+    read -s -p "密码: " password
+    echo
+    # 检查用户是否存在于用户文件中
+    if grep -q "^$username:$password$" ~/docker_user; then
+        current_user=$username
+        echo "登录成功，欢迎 $current_user"
+        return 0
+    else
+        echo "用户名或密码错误"
+        return 1
+    fi
+}
+
+# 新建存储卷功能
+create_volume() {
+    echo -n "请输入存储卷名称: "
+    read volume_name
+    docker volume create $volume_name
+    echo "存储卷 $volume_name 创建成功"
+}
+
+# 删除存储卷功能
+delete_volume() {
+    echo -n "请输入要删除的存储卷名称: "
+    read volume_name
+    docker volume rm $volume_name
+    echo "存储卷 $volume_name 删除成功"
+}
+
+# 列出所有存储卷功能
+list_all_volumes() {
+    docker volume ls
+}
+
+# 列出用户存储卷功能
+list_user_volumes() {
+    user_volumes=""
+    while IFS= read -r line; do
+        volume_name=$(echo $line | awk '{print $2}')
+        if [[ ! -z "$volume_name" ]]; then
+            user_volumes+="$volume_name "
+        fi
+    done < <(docker volume ls --format "{{.Driver}} {{.Name}}" | grep "local $current_user")
+    echo "$user_volumes"
+}
+
+# 新建容器功能
+create_container() {
+    echo "正在列出所有镜像..."
+    list_all_images
+    echo -n "请输入要创建容器的镜像ID: "
+    read image_id
+    echo -n "请输入新容器的名称: "
+    read container_name
+    echo -n "请输入容器的网络名称 (默认为 bridge): "
+    read -i "bridge" network_name
+    echo -n "请输入要映射的端口 (格式为 'host_port:container_port'，默认为空): "
+    read -i "" port_mapping
+
+    # 列出当前用户拥有的存储卷
+    user_volumes=$(list_user_volumes)
+
+    if [[ -z "$user_volumes" ]]; then
+        echo "当前用户没有存储卷"
+        echo -n "是否要新建一个存储卷？[Y/n]: "
+        read create_volume_choice
+        if [[ "$create_volume_choice" == "n" || "$create_volume_choice" == "N" ]]; then
+            volume_mount=""
+        else
+            create_volume
+        fi
+    else
+        echo "当前用户拥有的存储卷:"
+        echo "$user_volumes"
+        echo -n "请选择要挂载的存储卷 (输入存储卷名称，留空表示不挂载): "
+        read volume_mount
+        if [[ ! -z "$volume_mount" ]]; then
+            echo -n "设置容器的读写权限？[rw/RW] (默认为只读): "
+            read volume_permissions
+            if [[ "$volume_permissions" == "rw" || "$volume_permissions" == "RW" ]]; then
+                volume_mount="$volume_mount:ro"
+            fi
+        fi
+    fi
+
+    echo -n "请输入要挂载的 GPU 编号列表 (逗号分隔，例如 '0,1,2,3'，默认为空): "
+    read -i "" gpu_indices
+
+    gpu_params=""
+    if [[ ! -z "$gpu_indices" ]]; then
+        IFS=',' read -ra gpu_array <<< "$gpu_indices"
+        for gpu_index in "${gpu_array[@]}"; do
+            if (( gpu_index >= 0 && gpu_index <= 3 )); then
+                gpu_params+="\"device=$gpu_index\","
+            else
+                echo "GPU 编号必须在 0 到 3 之间"
+                return
+            fi
+        done
+        gpu_params="--gpus ${gpu_params::-1}" # Remove the trailing comma
+    fi
+
+    container_info=$(docker run -d --name $container_name --network $network_name \
+               -p $port_mapping \
+               -v $volume_mount \
+               $gpu_params \
+               $image_id)
+
+    container_id=$(echo $container_info | cut -d' ' -f1)
+    container_ip=""
+    if [[ "$network_name" == "bridge" ]]; then
+        container_ip=$(docker inspect --format='{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' $container_id)
+    fi
+
+    echo "容器 $container_name 创建成功"
+    echo "容器 ID: $container_id"
+    echo "容器名称: $container_name"
+    echo "容器网络: $network_name"
+    if [[ ! -z "$container_ip" ]]; then
+        echo "容器 IP 地址: $container_ip"
+    fi
+}
+
+# 删除容器功能
+delete_container() {
+    echo "请输入容器的ID或名称进行删除："
+    read -p "容器ID或名称: " container_id_or_name
+    docker rm -f $container_id_or_name
+    echo "容器 $container_id_or_name 删除成功"
+}
+
+# 查看所有容器功能
+list_all_containers() {
+    docker ps -a
+}
+
+# 查看用户自己创建的容器功能
+list_user_containers() {
+    docker ps -a --filter "ancestor=ubuntu" --format "{{.ID}} {{.Names}} {{.Status}} {{.Image}}"
+}
+
+# 容器启动功能
+start_container() {
+    echo "请输入容器的ID或名称进行启动："
+    read -p "容器ID或名称: " container_id_or_name
+    docker start $container_id_or_name
+    echo "容器 $container_id_or_name 启动成功"
+}
+
+# 容器停止功能
+stop_container() {
+    echo "请输入容器的ID或名称进行停止："
+    read -p "容器ID或名称: " container_id_or_name
+    docker stop $container_id_or_name
+    echo "容器 $container_id_or_name 停止成功"
+}
+
+# 容器重启功能
+restart_container() {
+    echo "请输入容器的ID或名称进行重启："
+    read -p "容器ID或名称: " container_id_or_name
+    docker restart $container_id_or_name
+    echo "容器 $container_id_or_name 重启成功"
+}
+
+# 容器详情功能
+inspect_container() {
+    echo "请输入容器的ID或名称查看详情："
+    read -p "容器ID或名称: " container_id_or_name
+    docker inspect $container_id_or_name
+}
+
+# 容器日志功能
+container_logs() {
+    echo "请输入容器的ID或名称查看日志："
+    read -p "容器ID或名称: " container_id_or_name
+    docker logs $container_id_or_name
+}
+
+# 克隆容器功能
+clone_container() {
+    echo "请输入要克隆的容器的ID或名称："
+    read -p "容器ID或名称: " source_container_id_or_name
+    echo -n "请输入新容器的名称: "
+    read new_container_name
+
+    docker create --name $new_container_name $(docker inspect -f "{{.Config.Image}}" $source_container_id_or_name)
+    echo "新容器 $new_container_name 创建成功"
+}
+
+# 主菜单
+main_menu() {
+    clear
+    echo "欢迎使用 Docker 管理程序"
+    echo "1. 登录"
+    echo "2. 镜像管理"
+    echo "3. 容器管理"
+    echo "4. 网络管理"
+    echo "5. 存储卷管理"
+    echo "0. 退出"
+    echo -n "请选择操作: "
+    read choice
+    case $choice in
+        1) login ;;
+        2) image_management ;;
+        3) container_management ;;
+        4) network_management ;;
+        5) volume_management ;;
+        0) exit ;;
+        *) echo "无效选项"; sleep 2 ;;
+    esac
+}
+
+# 主循环
+while true; do
+    main_menu
+done
