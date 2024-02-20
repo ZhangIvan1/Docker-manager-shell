@@ -1,6 +1,6 @@
 # Docker Management Script
 
-[English](#docker-management-script) | [中文](#docker-管理脚本)
+[English]| [中文](#docker-管理脚本)
 
 ## Introduction
 
